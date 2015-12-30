@@ -369,6 +369,7 @@ public:
         CaptureDelegate(context, time_base, video, audio)
     {
         display_mode = NULL;
+        done = false;
     }
                     
     virtual HRESULT STDMETHODCALLTYPE
@@ -384,14 +385,16 @@ public:
         VideoInputFrameArrived(IDeckLinkVideoInputFrame*,
                                IDeckLinkAudioInputPacket*)
     {
-        // do nothing
+        done = true;
         return S_OK;
     }
     
     IDeckLinkDisplayMode *getDisplayMode() const { return display_mode; }
+    bool isDone() const { return done; }
                    
     private:
         IDeckLinkDisplayMode *display_mode;
+        bool done;
 }
 
 int query_display_mode(DecklinkConf *c)
@@ -507,6 +510,7 @@ int query_display_mode(DecklinkConf *c)
     while (capture->dm_it->Next(&capture->dm) == S_OK) {
         if (c->video_mode != 0) { // pick the first input
             capture->dm->Release();
+            result = 0;
             i++;
         } else
             break;
@@ -551,28 +555,30 @@ int query_display_mode(DecklinkConf *c)
                                         c->audio_sample_depth,
                                         c->audio_channels);
 
-    while (delegate->getMode())
+    while (!delegate->isDone())
     {
         usleep(20000);
     }
     
-    ret = capture->in->GetDisplayModeIterator(&capture->dm_it);
+    if (delegate->getMode()) {
+        ret = capture->in->GetDisplayModeIterator(&capture->dm_it);
 
-    if (ret != S_OK) {
-        goto fail;
-    }
-
-    i = 0;
-    while (capture->dm_it->Next(&capture->dm) == S_OK) {
-    
-        if (capture->dm == delegate->getMode()) {
-            result = i;
+        if (ret != S_OK) {
+            goto fail;
         }
+
+        i = 0;
+        while (capture->dm_it->Next(&capture->dm) == S_OK) {
     
-        capture->dm->Release();
-        i++;
+            if (capture->dm == delegate->getMode()) {
+                result = i;
+            }
+    
+            capture->dm->Release();
+            i++;
+        }
     }
-    
+        
 fail:
     decklink_capture_free(capture);
     
