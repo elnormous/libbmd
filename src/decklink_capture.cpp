@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <time.h>
 
 #include <DeckLinkAPIDispatch.cpp>
 #include <DeckLinkAPI.h>
@@ -63,7 +64,7 @@ public:
         VideoInputFrameArrived(IDeckLinkVideoInputFrame*,
                                IDeckLinkAudioInputPacket*);
 
-    private:
+private:
     ULONG ref_count;
     pthread_mutex_t mutex;
 
@@ -193,7 +194,7 @@ void decklink_capture_free(DecklinkCapture *capture)
     free(capture);
 }
 
-DecklinkCapture *decklink_capture_alloc(DecklinkConf *c)
+DecklinkCapture *decklink_capture_connect(DecklinkConf *c)
 {
     DecklinkCapture   *capture     = (DecklinkCapture *)calloc(1, sizeof(*capture));
     BMDPixelFormat    pix[]        = { bmdFormat8BitYUV, bmdFormat10BitYUV,
@@ -202,7 +203,7 @@ DecklinkCapture *decklink_capture_alloc(DecklinkConf *c)
     BMDDisplayMode    display_mode = -1;
     CaptureDelegate   *delegate;
     HRESULT           ret;
-    int i = 0;
+    int               i            = 0;
 
     if (!capture)
         return NULL;
@@ -356,6 +357,242 @@ DecklinkCapture *decklink_capture_alloc(DecklinkConf *c)
 fail:
     decklink_capture_free(capture);
     return NULL;
+}
+
+class QueryDelegate : public CaptureDelegate
+{
+public:
+    QueryDelegate(void *context,
+                  int64_t time_base,
+                  decklink_video_cb video,
+                  decklink_audio_cb audio):
+        CaptureDelegate(context, time_base, video, audio)
+    {
+        display_mode = NULL;
+        done = false;
+    }
+                    
+    virtual HRESULT STDMETHODCALLTYPE
+        VideoInputFormatChanged(BMDVideoInputFormatChangedEvents,
+                                IDeckLinkDisplayMode* new_display_mode,
+                                BMDDetectedVideoInputFormatFlags)
+    {
+        display_mode = new_display_mode;
+        return S_OK;
+    }
+    
+    virtual HRESULT STDMETHODCALLTYPE
+        VideoInputFrameArrived(IDeckLinkVideoInputFrame*,
+                               IDeckLinkAudioInputPacket*)
+    {
+        done = true;
+        return S_OK;
+    }
+    
+    IDeckLinkDisplayMode *getDisplayMode() const { return display_mode; }
+    bool isDone() const { return done; }
+                   
+    private:
+        IDeckLinkDisplayMode *display_mode;
+        bool done;
+}
+
+int query_display_mode(DecklinkConf *c)
+{
+    DecklinkCapture   *capture     = (DecklinkCapture *)calloc(1, sizeof(*capture));
+    BMDPixelFormat    pix[]        = { bmdFormat8BitYUV, bmdFormat10BitYUV,
+                                       bmdFormat8BitARGB, bmdFormat10BitRGB,
+                                       bmdFormat8BitBGRA };
+    BMDDisplayMode    display_mode = -1;
+    QueryDelegate     *delegate;
+    HRESULT           ret;
+    int               i            = 0;
+    int               result       = -1;
+
+    if (!capture)
+        return NULL;
+
+    capture->it = CreateDeckLinkIteratorInstance();
+
+    if (!capture->it)
+        goto fail;
+
+    switch (c->audio_channels) {
+    case  0:
+        c->audio_channels = 2;
+    case  2:
+    case  8:
+    case 16:
+        break;
+    default:
+        goto fail;
+    }
+
+    switch (c->audio_sample_depth) {
+    case  0:
+        c->audio_sample_depth = 16;
+    case 16:
+    case 32:
+        break;
+    default:
+        goto fail;
+    }
+
+    if (c->pixel_format >= sizeof(pix))
+        goto fail;
+
+    do {
+        ret = capture->it->Next(&capture->dl);
+    } while (i++ < c->instance);
+
+    if (ret != S_OK)
+        goto fail;
+
+    ret = capture->dl->QueryInterface(IID_IDeckLinkInput,
+                                      (void**)&capture->in);
+    if (ret != S_OK)
+        goto fail;
+
+    ret = capture->dl->QueryInterface(IID_IDeckLinkConfiguration,
+                                      (void**)&capture->conf);
+
+    switch (c->audio_connection) {
+    case 1:
+        ret = capture->conf->SetInt(bmdDeckLinkConfigAudioInputConnection,
+                                    bmdAudioConnectionAnalog);
+        break;
+    case 2:
+        ret = capture->conf->SetInt(bmdDeckLinkConfigAudioInputConnection,
+                                    bmdAudioConnectionEmbedded);
+        break;
+    default:
+        // do not change it
+        break;
+    }
+
+    if (ret != S_OK) {
+        goto fail;
+    }
+
+    switch (c->video_connection) {
+    case 1:
+        ret = capture->conf->SetInt(bmdDeckLinkConfigVideoInputConnection,
+                                    bmdVideoConnectionComposite);
+        break;
+    case 2:
+        ret = capture->conf->SetInt(bmdDeckLinkConfigVideoInputConnection,
+                                    bmdVideoConnectionComponent);
+        break;
+    case 3:
+        ret = capture->conf->SetInt(bmdDeckLinkConfigVideoInputConnection,
+                                    bmdVideoConnectionHDMI);
+        break;
+    case 4:
+        ret = capture->conf->SetInt(bmdDeckLinkConfigVideoInputConnection,
+                                    bmdVideoConnectionSDI);
+        break;
+    default:
+        // do not change it
+        break;
+    }
+
+    if (ret != S_OK) {
+        goto fail;
+    }
+
+    ret = capture->in->GetDisplayModeIterator(&capture->dm_it);
+
+    if (ret != S_OK) {
+        goto fail;
+    }
+
+    i = 0;
+    while (capture->dm_it->Next(&capture->dm) == S_OK) {
+        if (c->video_mode != 0) { // pick the first input
+            capture->dm->Release();
+            result = 0;
+            i++;
+        } else
+            break;
+    }
+
+    c->width      = capture->dm->GetWidth();
+    c->height     = capture->dm->GetHeight();
+    switch (capture->dm->GetFieldDominance()) {
+    case bmdUnknownFieldDominance:
+        c->field_mode = 0;
+        break;
+    case bmdLowerFieldFirst:
+        c->field_mode = 1;
+        break;
+    case bmdUpperFieldFirst:
+        c->field_mode = 2;
+        break;
+    case bmdProgressiveFrame:
+        c->field_mode = 3;
+        break;
+    case bmdProgressiveSegmentedFrame:
+        c->field_mode = 4;
+        break;
+    default:
+        goto fail;
+    }
+
+    capture->dm->GetFrameRate(&c->tb_num, &c->tb_den);
+
+    delegate = new QueryDelegate(c->priv, c->tb_den,
+                                 c->video_cb, c->audio_cb);
+
+    if (!delegate)
+        goto fail;
+
+    capture->in->SetCallback(delegate);
+
+    ret = capture->in->EnableVideoInput(capture->dm->GetDisplayMode(),
+                                        pix[c->pixel_format], 0);
+
+    ret = capture->in->EnableAudioInput(bmdAudioSampleRate48kHz,
+                                        c->audio_sample_depth,
+                                        c->audio_channels);
+
+    while (!delegate->isDone())
+    {
+        usleep(20000);
+    }
+    
+    if (delegate->getMode()) {
+        ret = capture->in->GetDisplayModeIterator(&capture->dm_it);
+
+        if (ret != S_OK) {
+            goto fail;
+        }
+
+        i = 0;
+        while (capture->dm_it->Next(&capture->dm) == S_OK) {
+    
+            if (capture->dm == delegate->getMode()) {
+                result = i;
+            }
+    
+            capture->dm->Release();
+            i++;
+        }
+    }
+        
+fail:
+    decklink_capture_free(capture);
+    
+    return result;
+}
+
+DecklinkCapture *decklink_capture_alloc(DecklinkConf *c)
+{
+    if (c->video_mode != -1)
+    {
+        c->video_mode = query_display_mode(c);
+    }
+    
+    return decklink_capture_connect(c);
 }
 
 int decklink_capture_start(DecklinkCapture *capture)
