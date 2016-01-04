@@ -395,7 +395,7 @@ public:
     private:
         IDeckLinkDisplayMode *display_mode;
         bool done;
-}
+};
 
 int query_display_mode(DecklinkConf *c)
 {
@@ -410,7 +410,7 @@ int query_display_mode(DecklinkConf *c)
     int               result       = -1;
 
     if (!capture)
-        return NULL;
+        return -1;
 
     capture->it = CreateDeckLinkIteratorInstance();
 
@@ -560,7 +560,7 @@ int query_display_mode(DecklinkConf *c)
         usleep(20000);
     }
     
-    if (delegate->getMode()) {
+    if (delegate->getDisplayMode()) {
         ret = capture->in->GetDisplayModeIterator(&capture->dm_it);
 
         if (ret != S_OK) {
@@ -570,7 +570,7 @@ int query_display_mode(DecklinkConf *c)
         i = 0;
         while (capture->dm_it->Next(&capture->dm) == S_OK) {
     
-            if (capture->dm == delegate->getMode()) {
+            if (capture->dm == delegate->getDisplayMode()) {
                 result = i;
             }
     
