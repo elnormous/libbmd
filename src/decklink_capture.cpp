@@ -507,14 +507,12 @@ int query_display_mode(DecklinkConf *c)
     }
 
     i = 0;
-    while (capture->dm_it->Next(&capture->dm) == S_OK) {
-        if (c->video_mode != 0) { // pick the first input
-            capture->dm->Release();
-            result = 0;
-            i++;
-        } else
-            break;
+    while (capture->dm_it->Next(&capture->dm) != S_OK) {
+        capture->dm->Release();
+        result = i;
+        i++;
     }
+    result = i;
 
     c->width      = capture->dm->GetWidth();
     c->height     = capture->dm->GetHeight();
