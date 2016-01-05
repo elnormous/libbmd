@@ -359,43 +359,83 @@ fail:
     return NULL;
 }
 
-class QueryDelegate : public CaptureDelegate
+class QueryDelegate : public IDeckLinkInputCallback
 {
 public:
-    QueryDelegate(void *context,
-                  int64_t time_base,
-                  decklink_video_cb video,
-                  decklink_audio_cb audio):
-        CaptureDelegate(context, time_base, video, audio)
-    {
-        display_mode = NULL;
-        done = false;
-    }
-                    
+    QueryDelegate(BMDDisplayMode display_mode);
+    
+    virtual HRESULT STDMETHODCALLTYPE
+        QueryInterface(REFIID iid, LPVOID *ppv) { return E_NOINTERFACE; }
+    virtual ULONG STDMETHODCALLTYPE
+        AddRef(void);
+    virtual ULONG STDMETHODCALLTYPE
+        Release(void);
+    
     virtual HRESULT STDMETHODCALLTYPE
         VideoInputFormatChanged(BMDVideoInputFormatChangedEvents,
-                                IDeckLinkDisplayMode* new_display_mode,
-                                BMDDetectedVideoInputFormatFlags)
-    {
-        display_mode = new_display_mode;
-        return S_OK;
-    }
+                                IDeckLinkDisplayMode*,
+                                BMDDetectedVideoInputFormatFlags);
     
     virtual HRESULT STDMETHODCALLTYPE
         VideoInputFrameArrived(IDeckLinkVideoInputFrame*,
-                               IDeckLinkAudioInputPacket*)
-    {
-        done = true;
-        return S_OK;
-    }
+                               IDeckLinkAudioInputPacket*);
     
-    IDeckLinkDisplayMode *getDisplayMode() const { return display_mode; }
+    BMDDisplayMode GetDisplayMode() const { return display_mode; }
     bool isDone() const { return done; }
                    
     private:
-        IDeckLinkDisplayMode *display_mode;
+        BMDDisplayMode display_mode;
         bool done;
+        ULONG ref_count;
 };
+
+QueryDelegate::QueryDelegate(BMDDisplayMode display_mode): ref_count(0)
+{
+    display_mode = display_mode;
+    done = false;
+}
+
+ULONG QueryDelegate::AddRef(void)
+{
+    ref_count++;
+    return ref_count;
+}
+
+ULONG QueryDelegate::Release(void)
+{
+    ref_count--;
+
+    if (!ref_count) {
+        delete this;
+        return 0;
+    }
+
+    return ref_count;
+}
+
+HRESULT
+QueryDelegate::VideoInputFrameArrived(IDeckLinkVideoInputFrame  *v_frame,
+                                        IDeckLinkAudioInputPacket *a_frame)
+{
+    if (v_frame->GetFlags() & bmdFrameHasNoInputSource) {
+        return S_OK;
+    }
+    else {
+        done = true;
+    }
+    
+    return S_OK;
+}
+
+HRESULT
+QueryDelegate::VideoInputFormatChanged(BMDVideoInputFormatChangedEvents ev,
+                                         IDeckLinkDisplayMode *mode,
+                                         BMDDetectedVideoInputFormatFlags)
+{
+    display_mode = mode->GetDisplayMode();
+    done = true;
+    return S_OK;
+}
 
 int query_display_mode(DecklinkConf *c)
 {
@@ -408,9 +448,11 @@ int query_display_mode(DecklinkConf *c)
     HRESULT           ret;
     int               i            = 0;
     int               result       = -1;
+    IDeckLinkAttributes* deckLinkAttributes;
+    bool			  formatDetectionSupported;
 
     if (!capture)
-        return -1;
+        goto fail;
 
     capture->it = CreateDeckLinkIteratorInstance();
 
@@ -448,6 +490,22 @@ int query_display_mode(DecklinkConf *c)
     if (ret != S_OK)
         goto fail;
 
+    ret = capture->dl->QueryInterface(IID_IDeckLinkAttributes, (void**)&deckLinkAttributes);
+    
+    if (ret != S_OK) {
+        goto fail;
+    }
+    
+    ret = deckLinkAttributes->GetFlag(BMDDeckLinkSupportsInputFormatDetection, &formatDetectionSupported);
+    
+    if (ret != S_OK) {
+        goto fail;
+    }
+    
+    if (!formatDetectionSupported) {
+        goto fail;
+    }
+    
     ret = capture->dl->QueryInterface(IID_IDeckLinkInput,
                                       (void**)&capture->in);
     if (ret != S_OK)
@@ -507,13 +565,20 @@ int query_display_mode(DecklinkConf *c)
     }
 
     i = 0;
-    while (capture->dm_it->Next(&capture->dm) == S_OK) {
-        if (c->video_mode != 0) { // pick the first input
+    while (true) {
+    
+        if (capture->dm_it->Next(&capture->dm) != S_OK) {
             capture->dm->Release();
-            result = 0;
-            i++;
-        } else
+        }
+        else {
+            result = i;
             break;
+        }
+        i++;
+    }
+    
+    if (result == -1) {
+        return -1;
     }
 
     c->width      = capture->dm->GetWidth();
@@ -540,8 +605,7 @@ int query_display_mode(DecklinkConf *c)
 
     capture->dm->GetFrameRate(&c->tb_num, &c->tb_den);
 
-    delegate = new QueryDelegate(c->priv, c->tb_den,
-                                 c->video_cb, c->audio_cb);
+    delegate = new QueryDelegate(capture->dm->GetDisplayMode());
 
     if (!delegate)
         goto fail;
@@ -549,18 +613,27 @@ int query_display_mode(DecklinkConf *c)
     capture->in->SetCallback(delegate);
 
     ret = capture->in->EnableVideoInput(capture->dm->GetDisplayMode(),
-                                        pix[c->pixel_format], 0);
+                                        pix[c->pixel_format],
+                                        bmdVideoInputEnableFormatDetection);
 
-    ret = capture->in->EnableAudioInput(bmdAudioSampleRate48kHz,
-                                        c->audio_sample_depth,
-                                        c->audio_channels);
-
+    ret = capture->in->StartStreams();
+    
+    if (ret != S_OK) {
+        goto fail;
+    }
+    
     while (!delegate->isDone())
     {
         usleep(20000);
     }
     
-    if (delegate->getDisplayMode()) {
+    ret = capture->in->StopStreams();
+    
+    if (ret != S_OK) {
+        goto fail;
+    }
+    
+    if (delegate->GetDisplayMode()) {
         ret = capture->in->GetDisplayModeIterator(&capture->dm_it);
 
         if (ret != S_OK) {
@@ -569,12 +642,13 @@ int query_display_mode(DecklinkConf *c)
 
         i = 0;
         while (capture->dm_it->Next(&capture->dm) == S_OK) {
+            BMDDisplayMode display_mode = capture->dm->GetDisplayMode();
+            capture->dm->Release();
     
-            if (capture->dm == delegate->getDisplayMode()) {
+            if (display_mode == delegate->GetDisplayMode()) {
                 result = i;
             }
     
-            capture->dm->Release();
             i++;
         }
     }
@@ -587,7 +661,7 @@ fail:
 
 DecklinkCapture *decklink_capture_alloc(DecklinkConf *c)
 {
-    if (c->video_mode != -1)
+    if (c->video_mode == -1)
     {
         c->video_mode = query_display_mode(c);
     }
