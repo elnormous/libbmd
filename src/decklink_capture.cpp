@@ -365,11 +365,10 @@ public:
     QueryDelegate(void *context,
                   int64_t time_base,
                   decklink_video_cb video,
-                  decklink_audio_cb audio):
-        CaptureDelegate(context, time_base, video, audio)
+                  decklink_audio_cb audio,
+                  BMDDisplayMode display_mode):
+        CaptureDelegate(context, time_base, video, audio), display_mode(display_mode), done(false)
     {
-        display_mode = NULL;
-        done = false;
     }
                     
     virtual HRESULT STDMETHODCALLTYPE
@@ -377,7 +376,7 @@ public:
                                 IDeckLinkDisplayMode* new_display_mode,
                                 BMDDetectedVideoInputFormatFlags)
     {
-        display_mode = new_display_mode;
+        display_mode = new_display_mode->GetDisplayMode();
         done = true;
         return S_OK;
     }
@@ -396,11 +395,11 @@ public:
         return S_OK;
     }
     
-    IDeckLinkDisplayMode *getDisplayMode() const { return display_mode; }
+    BMDDisplayMode GetDisplayMode() const { return display_mode; }
     bool isDone() const { return done; }
                    
     private:
-        IDeckLinkDisplayMode *display_mode;
+        BMDDisplayMode display_mode;
         bool done;
 };
 
@@ -573,7 +572,8 @@ int query_display_mode(DecklinkConf *c)
     capture->dm->GetFrameRate(&c->tb_num, &c->tb_den);
 
     delegate = new QueryDelegate(c->priv, c->tb_den,
-                                 c->video_cb, c->audio_cb);
+                                 c->video_cb, c->audio_cb,
+                                 capture->dm->GetDisplayMode());
 
     if (!delegate)
         goto fail;
@@ -601,7 +601,7 @@ int query_display_mode(DecklinkConf *c)
         goto fail;
     }
     
-    if (delegate->getDisplayMode()) {
+    if (delegate->GetDisplayMode()) {
         ret = capture->in->GetDisplayModeIterator(&capture->dm_it);
 
         if (ret != S_OK) {
@@ -610,12 +610,13 @@ int query_display_mode(DecklinkConf *c)
 
         i = 0;
         while (capture->dm_it->Next(&capture->dm) == S_OK) {
+            BMDDisplayMode display_mode = capture->dm->GetDisplayMode();
+            capture->dm->Release();
     
-            if (capture->dm == delegate->getDisplayMode()) {
+            if (display_mode == delegate->GetDisplayMode()) {
                 result = i;
             }
     
-            capture->dm->Release();
             i++;
         }
     }
