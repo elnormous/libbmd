@@ -383,10 +383,16 @@ public:
     }
     
     virtual HRESULT STDMETHODCALLTYPE
-        VideoInputFrameArrived(IDeckLinkVideoInputFrame*,
+        VideoInputFrameArrived(IDeckLinkVideoInputFrame* v_frame,
                                IDeckLinkAudioInputPacket*)
     {
-        done = true;
+        if (v_frame->GetFlags() & bmdFrameHasNoInputSource) {
+            return S_OK;
+        }
+        else {
+            done = true;
+        }
+        
         return S_OK;
     }
     
