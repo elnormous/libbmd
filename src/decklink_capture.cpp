@@ -587,7 +587,7 @@ fail:
 
 DecklinkCapture *decklink_capture_alloc(DecklinkConf *c)
 {
-    if (c->video_mode != -1)
+    if (c->video_mode == -1)
     {
         c->video_mode = query_display_mode(c);
     }
