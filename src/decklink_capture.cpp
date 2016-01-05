@@ -409,9 +409,11 @@ int query_display_mode(DecklinkConf *c)
     HRESULT           ret;
     int               i            = 0;
     int               result       = -1;
+    IDeckLinkAttributes* deckLinkAttributes;
+    bool			  formatDetectionSupported;
 
     if (!capture)
-        return -1;
+        goto fail;
 
     capture->it = CreateDeckLinkIteratorInstance();
 
@@ -449,6 +451,22 @@ int query_display_mode(DecklinkConf *c)
     if (ret != S_OK)
         goto fail;
 
+    ret = capture->dl->QueryInterface(IID_IDeckLinkAttributes, (void**)&deckLinkAttributes);
+    
+    if (ret != S_OK) {
+        goto fail;
+    }
+    
+    ret = deckLinkAttributes->GetFlag(BMDDeckLinkSupportsInputFormatDetection, &formatDetectionSupported);
+    
+    if (ret != S_OK) {
+        goto fail;
+    }
+    
+    if (!formatDetectionSupported) {
+        goto fail;
+    }
+    
     ret = capture->dl->QueryInterface(IID_IDeckLinkInput,
                                       (void**)&capture->in);
     if (ret != S_OK)
@@ -557,7 +575,8 @@ int query_display_mode(DecklinkConf *c)
     capture->in->SetCallback(delegate);
 
     ret = capture->in->EnableVideoInput(capture->dm->GetDisplayMode(),
-                                        pix[c->pixel_format], 0);
+                                        pix[c->pixel_format],
+                                        bmdVideoInputEnableFormatDetection);
 
     ret = capture->in->EnableAudioInput(bmdAudioSampleRate48kHz,
                                         c->audio_sample_depth,
