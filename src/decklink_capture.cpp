@@ -578,13 +578,21 @@ int query_display_mode(DecklinkConf *c)
                                         pix[c->pixel_format],
                                         bmdVideoInputEnableFormatDetection);
 
-    ret = capture->in->EnableAudioInput(bmdAudioSampleRate48kHz,
-                                        c->audio_sample_depth,
-                                        c->audio_channels);
-
+    ret = capture->in->StartStreams();
+    
+    if (ret != S_OK) {
+        goto fail;
+    }
+    
     while (!delegate->isDone())
     {
         usleep(20000);
+    }
+    
+    ret = capture->in->StopStreams();
+    
+    if (ret != S_OK) {
+        goto fail;
     }
     
     if (delegate->getDisplayMode()) {
