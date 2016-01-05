@@ -378,6 +378,7 @@ public:
                                 BMDDetectedVideoInputFormatFlags)
     {
         display_mode = new_display_mode;
+        done = true;
         return S_OK;
     }
     
