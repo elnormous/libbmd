@@ -200,7 +200,7 @@ DecklinkCapture *decklink_capture_connect(DecklinkConf *c)
     BMDPixelFormat    pix[]        = { bmdFormat8BitYUV, bmdFormat10BitYUV,
                                        bmdFormat8BitARGB, bmdFormat10BitRGB,
                                        bmdFormat8BitBGRA };
-    BMDDisplayMode    display_mode = -1;
+    BMDDisplayMode    display_mode;
     CaptureDelegate   *delegate;
     HRESULT           ret;
     int               i            = 0;
@@ -302,16 +302,62 @@ DecklinkCapture *decklink_capture_connect(DecklinkConf *c)
         goto fail;
     }
 
-    i = 0;
-    while (capture->dm_it->Next(&capture->dm) == S_OK) {
-        if (c->video_mode != i) {
-            capture->dm->Release();
-            i++;
-        } else
-            break;
+    switch (c->video_mode) {
+        case 0: display_mode = bmdModeNTSC; break;
+        case 1: display_mode = bmdModeNTSC2398; break;
+        case 2: display_mode = bmdModePAL; break;
+        case 14: display_mode = bmdModeNTSCp; break;
+        case 15: display_mode = bmdModePALp; break;
+
+        case 3: display_mode = bmdModeHD1080p2398; break;
+        case 4: display_mode = bmdModeHD1080p24; break;
+        case 5: display_mode = bmdModeHD1080p25; break;
+        case 6: display_mode = bmdModeHD1080p2997; break;
+        case 7: display_mode = bmdModeHD1080p30; break;
+        case 8: display_mode = bmdModeHD1080i50; break;
+        case 9: display_mode = bmdModeHD1080i5994; break;
+        case 10: display_mode = bmdModeHD1080i6000; break;
+        case 16: display_mode = bmdModeHD1080p50; break;
+        case 17: display_mode = bmdModeHD1080p5994; break;
+        case 18: display_mode = bmdModeHD1080p6000; break;
+
+        case 11: display_mode = bmdModeHD720p50; break;
+        case 12: display_mode = bmdModeHD720p5994; break;
+        case 13: display_mode = bmdModeHD720p60; break;
+
+        case 19: display_mode = bmdMode2k2398; break;
+        case 20: display_mode = bmdMode2k24; break;
+        case 21: display_mode = bmdMode2k25; break;
+
+        case 22: display_mode = bmdMode2kDCI2398; break;
+        case 23: display_mode = bmdMode2kDCI24; break;
+        case 24: display_mode = bmdMode2kDCI25; break;
+
+        case 25: display_mode = bmdMode4K2160p2398; break;
+        case 26: display_mode = bmdMode4K2160p24; break;
+        case 27: display_mode = bmdMode4K2160p25; break;
+        case 28: display_mode = bmdMode4K2160p2997; break;
+        case 29: display_mode = bmdMode4K2160p30; break;
+        case 30: display_mode = bmdMode4K2160p50; break;
+        case 31: display_mode = bmdMode4K2160p5994; break;
+        case 32: display_mode = bmdMode4K2160p60; break;
+
+        case 33: display_mode = bmdMode4kDCI2398; break;
+        case 34: display_mode = bmdMode4kDCI24; break;
+        case 35: display_mode = bmdMode4kDCI25; break;
+
+        default: display_mode = bmdModeUnknown; break;
     }
 
-    if (i != c->video_mode)
+    while ((ret = capture->dm_it->Next(&capture->dm)) == S_OK) {
+        if (display_mode == bmdModeUnknown ||
+            display_mode == capture->dm->GetDisplayMode())
+            break;
+        else
+            capture->dm->Release();
+    }
+
+    if (ret != S_OK)
         goto fail;
 
     c->width      = capture->dm->GetWidth();
