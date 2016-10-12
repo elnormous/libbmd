@@ -25,6 +25,7 @@
 #include <fcntl.h>
 #include <time.h>
 
+#include <DeckLinkAPIVersion.h>
 #include <DeckLinkAPIDispatch.cpp>
 #include <DeckLinkAPI.h>
 
@@ -338,9 +339,12 @@ DecklinkCapture *decklink_capture_connect(DecklinkConf *c)
         case 27: display_mode = bmdMode4K2160p25; break;
         case 28: display_mode = bmdMode4K2160p2997; break;
         case 29: display_mode = bmdMode4K2160p30; break;
+
+#if BLACKMAGIC_DECKLINK_API_VERSION >= 0x0a030100
         case 30: display_mode = bmdMode4K2160p50; break;
         case 31: display_mode = bmdMode4K2160p5994; break;
         case 32: display_mode = bmdMode4K2160p60; break;
+#endif
 
         case 33: display_mode = bmdMode4kDCI2398; break;
         case 34: display_mode = bmdMode4kDCI24; break;
