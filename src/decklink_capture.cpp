@@ -439,9 +439,8 @@ public:
         ULONG ref_count;
 };
 
-QueryDelegate::QueryDelegate(BMDDisplayMode display_mode): ref_count(0)
+QueryDelegate::QueryDelegate(BMDDisplayMode display_mode): ref_count(0), display_mode(display_mode)
 {
-    display_mode = display_mode;
     done = false;
 }
 
@@ -683,26 +682,57 @@ int query_display_mode(DecklinkConf *c)
         goto fail;
     }
     
-    if (delegate->GetDisplayMode()) {
-        ret = capture->in->GetDisplayModeIterator(&capture->dm_it);
+    switch (delegate->GetDisplayMode())
+    {
+        case bmdModeNTSC: result = 0; break;
+        case bmdModeNTSC2398: result = 1; break;
+        case bmdModePAL: result = 2; break;
+        case bmdModeNTSCp: result = 14; break;
+        case bmdModePALp: result = 15; break;
 
-        if (ret != S_OK) {
-            goto fail;
-        }
+        case bmdModeHD1080p2398: result = 3; break;
+        case bmdModeHD1080p24: result = 4; break;
+        case bmdModeHD1080p25: result = 5; break;
+        case bmdModeHD1080p2997: result = 6; break;
+        case bmdModeHD1080p30: result = 7; break;
+        case bmdModeHD1080i50: result = 8; break;
+        case bmdModeHD1080i5994: result = 9; break;
+        case bmdModeHD1080i6000: result = 10; break;
+        case bmdModeHD1080p50: result = 16; break;
+        case bmdModeHD1080p5994: result = 17; break;
+        case bmdModeHD1080p6000: result = 18; break;
 
-        i = 0;
-        while (capture->dm_it->Next(&capture->dm) == S_OK) {
-            BMDDisplayMode display_mode = capture->dm->GetDisplayMode();
-            capture->dm->Release();
-    
-            if (display_mode == delegate->GetDisplayMode()) {
-                result = i;
-            }
-    
-            i++;
-        }
+        case bmdModeHD720p50: result = 11; break;
+        case bmdModeHD720p5994: result = 12; break;
+        case bmdModeHD720p60: result = 13; break;
+
+        case bmdMode2k2398: result = 19; break;
+        case bmdMode2k24: result = 20; break;
+        case bmdMode2k25: result = 21; break;
+
+        case bmdMode2kDCI2398: result = 22; break;
+        case bmdMode2kDCI24: result = 23; break;
+        case bmdMode2kDCI25: result = 24; break;
+
+        case bmdMode4K2160p2398: result = 25; break;
+        case bmdMode4K2160p24: result = 26; break;
+        case bmdMode4K2160p2997: result = 27; break;
+        case bmdMode4K2160p2997: result = 28; break;
+        case bmdMode4K2160p30: result = 29; break;
+
+#if BLACKMAGIC_DECKLINK_API_VERSION >= 0x0a030100
+        case bmdMode4K2160p50: result = 30; break;
+        case bmdMode4K2160p5994: result = 31; break;
+        case bmdMode4K2160p60: result = 32; break;
+#endif
+
+        case bmdMode4kDCI2398: result = 33; break;
+        case bmdMode4kDCI24: result = 34; break;
+        case bmdMode4kDCI25: result = 35; break;
+
+        default: result = -1; break;
     }
-        
+
 fail:
     decklink_capture_free(capture);
     
