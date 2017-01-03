@@ -716,7 +716,7 @@ int query_display_mode(DecklinkConf *c)
 
         case bmdMode4K2160p2398: result = 25; break;
         case bmdMode4K2160p24: result = 26; break;
-        case bmdMode4K2160p2997: result = 27; break;
+        case bmdMode4K2160p25: result = 27; break;
         case bmdMode4K2160p2997: result = 28; break;
         case bmdMode4K2160p30: result = 29; break;
 
