@@ -562,21 +562,18 @@ int query_display_mode(DecklinkConf *c)
         goto fail;
     }
 
-    i = 0;
     while (true) {
-    
         if (capture->dm_it->Next(&capture->dm) != S_OK) {
             capture->dm->Release();
+            capture->dm = NULL;
         }
         else {
-            result = i;
             break;
         }
-        i++;
     }
     
-    if (result == -1) {
-        return -1;
+    if (!capture->dm) {
+        goto fail;
     }
 
     c->width      = capture->dm->GetWidth();
