@@ -385,14 +385,12 @@ public:
                    
     private:
         BMDDisplayMode display_mode;
-        bool done;
         ULONG ref_count;
+        bool done;
 };
 
-QueryDelegate::QueryDelegate(BMDDisplayMode display_mode): ref_count(0)
+QueryDelegate::QueryDelegate(BMDDisplayMode display_mode): display_mode(display_mode), ref_count(0), done(false)
 {
-    display_mode = display_mode;
-    done = false;
 }
 
 ULONG QueryDelegate::AddRef(void)
